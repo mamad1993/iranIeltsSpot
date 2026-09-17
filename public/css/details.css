@@ -1,0 +1,10 @@
+.table-wrapper{
+    display: block;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+
+.table-wrapper thead{
+    position: sticky;
+}

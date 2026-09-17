@@ -1,0 +1,272 @@
+@extends('main')
+
+@section('css')
+    <link rel="stylesheet" href="{{ asset('/css/details.css') }}">
+@endsection
+
+@section('content')
+    <div class="container-fluid py-5">
+        <h5>passage: {{ $passage->title }}</h5>
+        <label>paragraphs</label>
+
+        <div class="table-wrapper">
+            <table class="paragraph-table table table-bordered">
+                <thead>
+                <tr>
+                    <th>paragraph number</th>
+                    <th>english paragraph</th>
+                    <th dir="rtl">ترجمه فارسی</th>
+                </tr>
+                </thead>
+                <tbody id="paragraphTableBody">
+                @forelse($passage->paragraphs as $paragraph)
+                    <tr data-number="{{ $paragraph->paragraph_number }}"
+                        data-toggle="modal"
+                        data-target="#paragraph-{{ $paragraph->id }}">
+                        <td>{{ $paragraph->paragraph_number }}</td>
+                        <td>{{ $paragraph->text }}</td>
+                        <td dir="rtl">{{ $paragraph->persian_translation }}</td>
+                    </tr>
+                    @include('details._paragraph-modal', ['paragraph' => $paragraph])
+                @empty
+                    <tr class="no-data-row" dir="rtl">
+                        <td colspan="3" class="text-center text-muted py-3">
+                            هیچ پاراگرافی برای این passage ثبت نشده است.
+                        </td>
+                    </tr>
+                @endforelse
+                </tbody>
+            </table>
+        </div>
+
+        <button class="btn btn-info" type="button" id="addNewParagraph">
+            <i class="fas fa-plus"></i> add paragraph
+        </button>
+
+        <div id="newParagraph" class="d-none">
+            <input type="text" class="form-control" id="paragraphNumber" placeholder="enter paragraph number">
+            <textarea id="english-part" cols="30" rows="10" placeholder="english"></textarea>
+            <textarea id="persian-part" cols="30" rows="10" placeholder="فارسی" dir="rtl"></textarea>
+            <div>
+                <button class="btn btn-warning" type="button" id="submitParagraph">Add</button>
+                <button class="btn btn-light" id="removeNewParagraph">cancel</button>
+            </div>
+        </div>
+    </div>
+
+    {{-- Hidden template used by JS to build a new modal's markup client-side.
+         Keeps the modal HTML in one place conceptually, even though JS can't
+         "include" a Blade partial directly. Update both together. --}}
+    <template id="paragraph-modal-template">
+        <div class="modal fade">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">salam</h5>
+                        <button type="button" data-dismiss="modal" class="close">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <form method="POST" class="update-form">
+                            <input type="hidden" name="_method" value="PUT">
+                            <input type="hidden" name="_token" value="{{ csrf_token() }}">
+                            <input type="text" class="paragraph-number-input">
+                            <textarea name="updateEnglish" cols="30" rows="10" class="english-textarea"></textarea>
+                            <textarea name="updatePersian" cols="30" rows="10" class="persian-textarea"></textarea>
+                            <div class="p-modal-Buttons mt-2 d-flex align-items-center justify-content-between">
+                                <button class="btn btn-info" type="submit">Update</button>
+                            </div>
+                        </form>
+                        <form method="POST" class="delete-form">
+                            <input type="hidden" name="_method" value="DELETE">
+                            <input type="hidden" name="_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-danger">delete</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </template>
+@endsection
+
+@section('script')
+    <script>
+        $(document).ready(function () {
+            const $tableBody   = $('#paragraphTableBody');
+            const $formPanel   = $('#newParagraph');
+            const $numberInput = $('#paragraphNumber');
+            const $englishInput = $('#english-part');
+            const $persianInput = $('#persian-part');
+            const addParagraphUrl = "{{ route('add.paragraph') }}";
+            const passageId = "{{ $passage->id }}";
+            const csrfToken = $('meta[name="csrf-token"]').attr('content');
+
+            init();
+
+            function init() {
+                $numberInput.val(getLastParagraphNumber() + 1);
+                bindEvents();
+            }
+
+            function bindEvents() {
+                $('#addNewParagraph').on('click', openForm);
+                $('#removeNewParagraph').on('click', closeForm);
+                $('#submitParagraph').on('click', submitParagraph);
+
+                // Delegated so it keeps working for rows added later
+                $tableBody.on('click', 'tr[data-toggle="modal"]', function () {
+                    $($(this).data('target')).modal('show');
+                });
+            }
+
+            function openForm() {
+                $formPanel.removeClass('d-none');
+            }
+
+            function closeForm() {
+                $englishInput.val('');
+                $persianInput.val('');
+                $formPanel.addClass('d-none');
+            }
+
+            function showAlert(message, type = 'warning', title = 'توجه') {
+                return Swal.fire({
+                    title,
+                    text: message,
+                    icon: type,
+                    confirmButtonText: 'تایید',
+                    confirmButtonColor: '#ffc107',
+                    didOpen: () => {
+                        Swal.getPopup().style.direction = 'rtl';
+                        Swal.getPopup().style.textAlign = 'right';
+                    }
+                });
+            }
+
+            // ---------- Read state from the table ----------
+
+            function getParagraphNumbers() {
+                return $tableBody.find('tr').not('.no-data-row')
+                    .map(function () { return parseInt($(this).attr('data-number'), 10); })
+                    .get()
+                    .filter(n => !isNaN(n));
+            }
+
+            function getLastParagraphNumber() {
+                const numbers = getParagraphNumbers();
+                return numbers.length ? Math.max(...numbers) : 0;
+            }
+
+            function hasParagraphGap() {
+                const numbers = getParagraphNumbers();
+                if (numbers.length === 0) return false;
+                if (numbers[0] !== 1) return true;
+
+                for (let i = 0; i < numbers.length - 1; i++) {
+                    if (numbers[i + 1] - numbers[i] > 1) return true;
+                }
+                return false;
+            }
+
+            // ---------- Validation ----------
+
+            function validateNewParagraph(number, english, persian) {
+                if (isNaN(number)) {
+                    showAlert('لطفا شماره پاراگراف را به صورت عدد وارد کن');
+                    return false;
+                }
+
+                if (!english.trim() || !persian.trim()) {
+                    showAlert('لطفا هر دو قسمت را پر کن');
+                    return false;
+                }
+
+                const lastNumber = getLastParagraphNumber();
+                if (!hasParagraphGap() && number !== lastNumber + 1) {
+                    showAlert('ترتیب رعایت نشده. عدد پیشنهادی: ' + (lastNumber + 1))
+                        .then(() => $numberInput.val(lastNumber + 1));
+                    return false;
+                }
+
+                return true;
+            }
+
+            // ---------- Submit ----------
+
+            function submitParagraph() {
+                const english = $englishInput.val();
+                const persian = $persianInput.val();
+                const number = parseInt($numberInput.val(), 10);
+
+                if (!validateNewParagraph(number, english, persian)) return;
+
+                $.ajax({
+                    url: addParagraphUrl,
+                    type: 'POST',
+                    headers: { 'X-CSRF-TOKEN': csrfToken },
+                    data: {
+                        passageId,
+                        english,
+                        persian,
+                        paragraphNumber: number,
+                    },
+                    success: onParagraphAdded,
+                });
+            }
+
+            function onParagraphAdded(response) {
+                const p = response.paragraph;
+
+                $tableBody.find('.no-data-row').remove();
+                insertRowInOrder(buildRow(p), p.paragraphNumber);
+                $('body').append(buildModal(p));
+
+                $numberInput.val(getLastParagraphNumber() + 1);
+                closeForm();
+            }
+
+            // ---------- DOM building ----------
+
+            function escapeHtml(str) {
+                return $('<div>').text(str).html();
+            }
+
+            function buildRow(p) {
+                return $(`
+                    <tr data-number="${p.paragraphNumber}" data-toggle="modal" data-target="#paragraph-${p.id}">
+                        <td>${p.paragraphNumber}</td>
+                        <td>${escapeHtml(p.english)}</td>
+                        <td dir="rtl">${escapeHtml(p.persian)}</td>
+                    </tr>
+                `);
+            }
+
+            function buildModal(p) {
+                const $modal = $($('#paragraph-modal-template').html());
+
+                $modal.attr('id', `paragraph-${p.id}`);
+                $modal.find('.paragraph-number-input').val(p.paragraphNumber);
+                $modal.find('.english-textarea').val(p.english);
+                $modal.find('.persian-textarea').val(p.persian);
+                $modal.find('.update-form').attr('action', `/details/update/paragraph/${p.id}`);
+                $modal.find('.delete-form').attr('action', `/details/delete/paragraph/${p.id}`);
+
+                return $modal;
+            }
+
+            function insertRowInOrder($row, number) {
+                let inserted = false;
+
+                $tableBody.find('tr').each(function () {
+                    const rowNumber = parseInt($(this).attr('data-number'), 10);
+                    if (rowNumber > number) {
+                        $(this).before($row);
+                        inserted = true;
+                        return false;
+                    }
+                });
+
+                if (!inserted) $tableBody.append($row);
+            }
+        });
+    </script>
+@endsection
